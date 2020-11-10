@@ -8,79 +8,90 @@ from shutil import copyfile, rmtree
 from pathvalidate import sanitize_filename
 import sys
 
-souhtparkapiurl = 'https://www.southpark.de/api/episodes/1/18'
+# Url to Southpark Api to get all source urls
+Southpark_Api_Url = 'https://www.southpark.de/api/episodes/1/18'
 
-customurl = True
-debug = True
-skip = False
+Custom_Url = True
+Debug = True
+Skip_Existing_Episodes = False
+running = True
 
-episodes = []
+Episodes = []
 null = None
 
-def download (url, number, title):
-    temppath = "./temp/"+number
-    outputpath = "./output/"
-    outputname = sanitize_filename(number +' - ' + title)
-    outputfile = outputname +'.mp4'
 
-    Path(outputpath).mkdir(parents=True, exist_ok=True)
-    existingfiles = [f for f in listdir(outputpath) if isfile(join(outputpath, f))]
+def download(Episode_Source_Url, Episode_Identifier, Episode_Title):
+    # Paths
+    Temp_Path = "./Temp/" + Episode_Identifier
+    Output_Path = "./Output/"
+    Output_Name = sanitize_filename(Episode_Identifier + ' - ' + Episode_Title)
+    Output_File = Output_Name + '.mp4'
 
-    if skip:
-        for file in existingfiles:
-            if number in file:
-                print('file with name "' + file + '" in ' + outputpath + ' found. skipping: ' + title)
+    # creating folders
+    Path(Output_Path).mkdir(parents=True, exist_ok=True)
+    Path(Temp_Path).mkdir(parents=True, exist_ok=True)
+
+    # check if downloaded episodes exist and skip them
+    Existing_Files = [f for f in listdir(Output_Path) if isfile(join(Output_Path, f))]
+    if Skip_Existing_Episodes:
+        for File in Existing_Files:
+            if Episode_Identifier in File:
+                print('file with name "' + File + '" in ' + Output_Path + ' found. skipping: ' + Episode_Title)
                 return
 
-    Path(temppath).mkdir(parents=True, exist_ok=True)
+    subprocess.run(['youtube-dlc.exe', '--restrict-filenames','--newline', Episode_Source_Url], cwd=Temp_Path)
+    Downloaded_Parts = [f for f in listdir(Temp_Path) if isfile(join(Temp_Path, f))]
 
-    subprocess.run(['youtube-dlc.exe','--restrict-filenames', url], cwd=temppath)
-    onlyfiles = [f for f in listdir(temppath) if isfile(join(temppath, f))]
+    with open(Temp_Path + '/parts.txt', 'w') as f:
+        for Episode_Part in Downloaded_Parts:
+            if Episode_Part != 'parts.txt':
+                if Episode_Part != Output_File:
+                    f.write("file '" + Episode_Part + "'\n")
 
-    with open(temppath + '/parts.txt', 'w') as f:
-        for part in onlyfiles:
-            if part != 'parts.txt':
-                if part != outputfile:
-                    f.write("file '"+part+"'\n")
+    # running ffmpeg to create a single file out of the 5 parts
+    subprocess.run(['ffmpeg.exe', '-y', '-f', 'concat', '-safe', '0', '-i', 'parts.txt', '-c', 'copy', Output_File],
+                   cwd=Temp_Path)
+    # copy finished episode into the output directory
+    copyfile(Temp_Path + '/' + Output_File, Output_Path + Output_File)
+    # cleanup
+    rmtree(Temp_Path)
 
-    subprocess.run(['ffmpeg.exe', '-y', '-f', 'concat', '-safe', '0', '-i', 'parts.txt', '-c', 'copy', outputfile], cwd=temppath)
-    copyfile(temppath + '/' + outputfile, outputpath + outputfile)
-    rmtree(temppath)
 
-if (len(sys.argv) > 1):
+# check for arguments
+if len(sys.argv) > 1:
     if sys.argv[1] == '-y':
         print('enabled skipping of finished downloads')
-        skip = True
+        Skip_Existing_Episodes = True
 
-with urllib.request.urlopen(souhtparkapiurl) as url:
-    response = json.loads(url.read().decode())
-    running = True
+while running:
+    if Custom_Url:
+        # getting the first api response manually
+        with urllib.request.urlopen(Southpark_Api_Url) as Episode_Source_Url:
+            Api_Response = json.loads(Episode_Source_Url.read().decode())
+            Custom_Url = False
+    else:
+        with urllib.request.urlopen('https://www.southpark.de' + Api_Response['loadMore']['url']) as Episode_Source_Url:
+            Api_Response = json.loads(Episode_Source_Url.read().decode())
+    for Episode in Api_Response['items']:
+        # getting the necessary data out of the Response
+        Episode_Identifier = Episode['meta']['header']['title']
+        Episode_Identifier = str(Episode_Identifier).replace(' • ', '-')
+        Episode_Title = Episode['meta']['subHeader']
+        Episode_Description = Episode['meta']['description']
+        Episode_Source_Url = Episode['url']
+        Episode_Source_Url = 'https://www.southpark.de' + Episode_Source_Url
 
-    while running == True:
-        if customurl == True:
-            with urllib.request.urlopen(souhtparkapiurl) as url:
-                response = json.loads(url.read().decode())
-                customurl = False
-        else:
-            with urllib.request.urlopen('https://www.southpark.de' + response['loadMore']['url']) as url:
-                response = json.loads(url.read().decode())
-        for episode in response['items']:
-            number = episode['meta']['header']['title']
-            number = str(number).replace(' • ', '-')
-            title = episode['meta']['subHeader']
-            description = episode['meta']['description']
-            url = episode['url']
-            url = 'https://www.southpark.de' + url
-            episode_set = {number: [{"title": title}, {'description': description}, {'url': url}]}
-            download(url, number,title)
-            episodes.append(episode_set)
+        download(Episode_Source_Url, Episode_Identifier, Episode_Title)
 
-        if response['loadMore'] == null:
-            running = False
-            print('finished downloading ' + str(len(episodes)) + ' episodes')
+        Episode_Infos = {Episode_Identifier: [{"title": Episode_Title}, {'description': Episode_Description},
+                                              {'url': Episode_Source_Url}]}
+        Episodes.append(Episode_Infos)
 
+    # if no more episodes are available, the process is finished
+    if Api_Response['loadMore'] == null:
+        running = False
+        print('finished downloading ' + str(len(Episodes)) + ' episodes')
 
+# backup all the infos about the Series locally
 with open('episodes.json', 'w', encoding='utf-8') as f:
-    json.dump(episodes, f, ensure_ascii=False, indent=4)
-
-
+    json.dump(Episodes, f, ensure_ascii=False, indent=4)
