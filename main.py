@@ -77,7 +77,7 @@ with urllib.request.urlopen(souhtparkapiurl) as url:
 
         if response['loadMore'] == null:
             running = False
-            print('finished downloading ' + len(episodes))
+            print('finished downloading ' + str(len(episodes)) + ' episodes')
 
 
 with open('episodes.json', 'w', encoding='utf-8') as f:
