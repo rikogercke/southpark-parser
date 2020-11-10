@@ -8,3 +8,5 @@ output/
 *.exe
 
 episodes.json
+
+.idea/
