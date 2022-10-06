@@ -35,7 +35,7 @@ def download(Episode_Source_Url, Episode_Identifier, Episode_Title):
     Existing_Files = [f for f in listdir(Output_Path) if isfile(join(Output_Path, f))]
     if Skip_Existing_Episodes:
         for File in Existing_Files:
-            if Episode_Identifier in File:
+            if (Episode_Identifier+" ") in File:
                 print('file with name "' + File + '" in ' + Output_Path + ' found. skipping: ' + Episode_Title)
                 return
 
